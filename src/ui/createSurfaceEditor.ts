@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { bezierCols, bezierRows, buildBezierSurfaceGeometries } from '../surfaces/bezierSurface'
+import { buildCoonsSurfaceGeometries } from '../surfaces/coonsSurface'
 
 type SurfaceEditorOptions = {
   app: HTMLDivElement
@@ -46,6 +47,29 @@ export function createSurfaceEditor(options: SurfaceEditorOptions) {
   settingsTitle.className = 'panel-subtitle'
   settingsTitle.textContent = 'View settings'
   panel.appendChild(settingsTitle)
+
+  // Surface selector
+  const selectorRow = document.createElement('label')
+  selectorRow.className = 'setting-row'
+  const selectorLabel = document.createElement('span')
+  selectorLabel.textContent = 'Surface'
+  const selector = document.createElement('select')
+  const optBezier = document.createElement('option')
+  optBezier.value = 'bezier'
+  optBezier.textContent = 'Bezier'
+  const optCoons = document.createElement('option')
+  optCoons.value = 'coons'
+  optCoons.textContent = 'Coons (placeholder)'
+  selector.appendChild(optBezier)
+  selector.appendChild(optCoons)
+  selector.value = 'bezier'
+  selector.addEventListener('change', () => {
+    rebuildSurface()
+    renderScene()
+  })
+  selectorRow.appendChild(selectorLabel)
+  selectorRow.appendChild(selector)
+  panel.appendChild(selectorRow)
 
   const resolutionField = document.createElement('label')
   resolutionField.className = 'setting-row'
@@ -244,13 +268,19 @@ export function createSurfaceEditor(options: SurfaceEditorOptions) {
 
   function rebuildSurface() {
     const controlGrid = getControlGrid()
-    const { surface, wire } = buildBezierSurfaceGeometries(controlGrid, state.resolution)
+    const kind = (selector && selector.value) || 'bezier'
+    let geomPair
+    if (kind === 'coons') {
+      geomPair = buildCoonsSurfaceGeometries(controlGrid, state.resolution)
+    } else {
+      geomPair = buildBezierSurfaceGeometries(controlGrid, state.resolution)
+    }
 
     if (surfaceWire.geometry) surfaceWire.geometry.dispose()
-    surfaceWire.geometry = wire
+    surfaceWire.geometry = geomPair.wire
 
     if (surfaceMesh.geometry) surfaceMesh.geometry.dispose()
-    surfaceMesh.geometry = surface
+    surfaceMesh.geometry = geomPair.surface
   }
 
   function renderScene() {
@@ -264,44 +294,82 @@ export function createSurfaceEditor(options: SurfaceEditorOptions) {
     renderScene()
   }
 
-  for (let j = 0; j < bezierRows; j++) {
-    for (let i = 0; i < bezierCols; i++) {
-      const index = j * bezierCols + i
-      const cell = document.createElement('label')
-      cell.className = 'slider-cell'
+  // Build slider UI dynamically depending on selected surface.
+  function isBoundary(i: number, j: number) {
+    return i === 0 || i === bezierCols - 1 || j === 0 || j === bezierRows - 1
+  }
 
-      const label = document.createElement('div')
-      label.className = 'slider-cell-label'
-      label.textContent = `P${i}${j}`
+  function clearSliderGrid() {
+    while (sliderGrid.firstChild) sliderGrid.removeChild(sliderGrid.firstChild)
+  }
 
-      const value = document.createElement('div')
-      value.className = 'slider-cell-value'
-      value.textContent = '0.00'
+  function buildSliderUI(kind: string) {
+    clearSliderGrid()
+    // show all points for bezier, only boundary points for coons
+    for (let j = 0; j < bezierRows; j++) {
+      for (let i = 0; i < bezierCols; i++) {
+        const index = j * bezierCols + i
+        if (kind === 'coons' && !isBoundary(i, j)) continue
 
-      const input = document.createElement('input')
-      input.type = 'range'
-      input.min = '-1.5'
-      input.max = '1.5'
-      input.step = '0.01'
-      input.value = '0'
-      input.addEventListener('input', () => {
-        value.textContent = Number(input.value).toFixed(2)
-        updatePointZ(index, Number(input.value))
-      })
+        const cell = document.createElement('label')
+        cell.className = 'slider-cell'
 
-      cell.appendChild(label)
-      cell.appendChild(value)
-      cell.appendChild(input)
-      sliderGrid.appendChild(cell)
-      sliderInputs[index] = input
+        const label = document.createElement('div')
+        label.className = 'slider-cell-label'
+        label.textContent = `P${i}${j}`
+
+        const value = document.createElement('div')
+        value.className = 'slider-cell-value'
+        value.textContent = pointMeshes[index].position.z.toFixed(2)
+
+        const input = document.createElement('input')
+        input.type = 'range'
+        input.min = '-1.5'
+        input.max = '1.5'
+        input.step = '0.01'
+        input.value = String(pointMeshes[index].position.z)
+        input.addEventListener('input', () => {
+          value.textContent = Number(input.value).toFixed(2)
+          updatePointZ(index, Number(input.value))
+        })
+
+        cell.appendChild(label)
+        cell.appendChild(value)
+        cell.appendChild(input)
+        sliderGrid.appendChild(cell)
+        sliderInputs[index] = input
+      }
     }
   }
+
+  // initial build for bezier
+  buildSliderUI('bezier')
 
   resetButton.addEventListener('click', () => {
     pointMeshes.forEach((point, index) => {
       point.position.set(basePositions[index].x, basePositions[index].y, 0)
-      sliderInputs[index].value = '0'
+      if (sliderInputs[index]) sliderInputs[index].value = '0'
     })
+    rebuildControlNet()
+    rebuildSurface()
+    renderScene()
+  })
+
+  // update UI when selector changes
+  selector.addEventListener('change', () => {
+    const kind = selector.value
+    buildSliderUI(kind)
+    // hide interior control point meshes when Coons selected
+    if (kind === 'coons') {
+      for (let j = 0; j < bezierRows; j++) {
+        for (let i = 0; i < bezierCols; i++) {
+          const idx = j * bezierCols + i
+          pointMeshes[idx].visible = isBoundary(i, j)
+        }
+      }
+    } else {
+      pointMeshes.forEach((m) => (m.visible = state.showControlPoints))
+    }
     rebuildControlNet()
     rebuildSurface()
     renderScene()
