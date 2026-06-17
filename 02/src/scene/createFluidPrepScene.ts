@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { createGridField } from '../flow/gridField'
 import { createParticleField } from '../flow/particleField'
 import { createVelocityField } from '../flow/velocityField'
 
@@ -42,7 +43,7 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
 
   const info = document.createElement('div')
   info.className = 'info'
-  info.textContent = 'Wheel: zoom / Right-drag: pan / Arrows show velocity'
+  info.textContent = 'Wheel: zoom / Right-drag: pan / Arrows show the active field'
   viewport.appendChild(info)
 
   const scene = new THREE.Scene()
@@ -95,6 +96,7 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
   scene.add(grid)
 
   const particleField = createParticleField(bounds, 1000)
+  const gridField = createGridField(bounds, state.sampleColumns, state.sampleRows)
   const velocityField = createVelocityField(scene, bounds, state.sampleColumns, state.sampleRows, state.velocityScale)
 
   const tabs = [
@@ -134,7 +136,7 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
 
   const particleDescription = document.createElement('p')
   particleDescription.className = 'panel-text'
-  particleDescription.textContent = '1000 個の粒子を状態として持ち、SPH で速度を求めて流れを作ります。表示は速度場の矢印だけにしています。'
+  particleDescription.textContent = '1000 個の粒子を状態として持つ particle モードです。SPH で速度を求め、その結果を矢印へ反映します。'
   content.particle.appendChild(particleDescription)
 
   const particleMeta = document.createElement('div')
@@ -143,7 +145,7 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
 
   const particleStateNote = document.createElement('div')
   particleStateNote.className = 'status-note'
-  particleStateNote.textContent = '画面外へ出た粒子は消え、左端から右向きの粒子が補充されます。'
+  particleStateNote.textContent = '画面外へ出た粒子は左端の -1 < y < 1 から右向きに再生成されます。'
   particleMeta.appendChild(particleStateNote)
 
   const settingsTitle = document.createElement('div')
@@ -187,58 +189,17 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
 
   const gridTitle = document.createElement('div')
   gridTitle.className = 'panel-title'
-  gridTitle.textContent = 'Grid mode'
+  gridTitle.textContent = 'Grid flow'
   content.grid.appendChild(gridTitle)
 
   const gridDescription = document.createElement('p')
   gridDescription.className = 'panel-text'
-  gridDescription.textContent = 'グリッド版は次の段階で実装します。今は切り替え先と設定枠だけを準備しています。'
+  gridDescription.textContent = 'grid モードでは格子セルを別ファイルで管理し、その速度場を矢印へ反映します。'
   content.grid.appendChild(gridDescription)
-
-  const gridCard = document.createElement('div')
-  gridCard.className = 'status-card'
-  content.grid.appendChild(gridCard)
-
-  const gridStateLabel = document.createElement('div')
-  gridStateLabel.className = 'status-label'
-  gridStateLabel.textContent = 'Status'
-  gridCard.appendChild(gridStateLabel)
-
-  const gridStateValue = document.createElement('div')
-  gridStateValue.className = 'status-value'
-  gridStateValue.textContent = 'Placeholder ready'
-  gridCard.appendChild(gridStateValue)
-
-  const gridStateNote = document.createElement('div')
-  gridStateNote.className = 'status-note'
-  gridStateNote.textContent = 'Particle tab now renders a 2D velocity field instead of particles.'
-  gridCard.appendChild(gridStateNote)
 
   const gridChecklist = document.createElement('div')
   gridChecklist.className = 'checklist'
   content.grid.appendChild(gridChecklist)
-
-  const gridItems = [
-    { title: 'Density field', body: '後で格子の密度を可視化する予定です。' },
-    { title: 'Velocity field', body: '速度ベクトルの更新を追加する場所です。' },
-    { title: 'Boundary solver', body: '壁との衝突と境界条件をここへ拡張します。' },
-  ]
-
-  for (const item of gridItems) {
-    const row = document.createElement('div')
-    row.className = 'check-item'
-
-    const contentBox = document.createElement('div')
-    const itemTitle = document.createElement('strong')
-    itemTitle.textContent = item.title
-    const itemBody = document.createElement('span')
-    itemBody.textContent = item.body
-    contentBox.appendChild(itemTitle)
-    contentBox.appendChild(itemBody)
-
-    row.appendChild(contentBox)
-    gridChecklist.appendChild(row)
-  }
 
   function syncMode() {
     for (const [mode, button] of tabButtons) {
@@ -269,11 +230,16 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
   }
 
   function updateVelocityField() {
-    velocityField.update((position) => particleField.sampleVelocityAt(position))
+    const sampler = state.mode === 'particle' ? particleField.sampleVelocityAt : gridField.sampleVelocityAt
+    velocityField.update((position) => sampler(position))
   }
 
   function updateParticles(deltaSeconds: number) {
     particleField.step(deltaSeconds, state.restDensity, state.stiffness, state.viscosity)
+  }
+
+  function updateGrid(deltaSeconds: number) {
+    gridField.step(deltaSeconds, state.viscosity)
   }
 
   function animate() {
@@ -281,8 +247,11 @@ export function createFluidPrepScene(options: FluidPrepSceneOptions) {
 
     if (state.mode === 'particle') {
       updateParticles(deltaSeconds)
-      updateVelocityField()
+    } else {
+      updateGrid(deltaSeconds)
     }
+
+    updateVelocityField()
 
     controls.update()
     renderer.render(scene, camera)
