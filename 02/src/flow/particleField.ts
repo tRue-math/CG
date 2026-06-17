@@ -47,7 +47,7 @@ function kernelViscosityLaplacian(distance: number): number {
 
 function createParticle(bounds: ParticleFieldBounds): Particle {
   return {
-    position: new THREE.Vector2(bounds.left + 0.02, THREE.MathUtils.lerp(-1, 1, Math.random())),
+    position: new THREE.Vector2(bounds.left + 0.02, THREE.MathUtils.lerp(-1.8, 1.8, Math.random())),
     velocity: new THREE.Vector2(0.85 + Math.random() * 1.5, (Math.random() - 0.5) * 0.5),
   }
 }
@@ -89,7 +89,7 @@ export function createParticleField(bounds: ParticleFieldBounds, count: number):
   }
 
   function respawnParticle(particle: Particle) {
-    particle.position.set(bounds.left + 0.02, THREE.MathUtils.lerp(-1, 1, Math.random()))
+    particle.position.set(bounds.left + 0.02, THREE.MathUtils.lerp(-1.8, 1.8, Math.random()))
     particle.velocity.set(0.85 + Math.random() * 1.5, (Math.random() - 0.5) * 0.5)
   }
 
